@@ -6,7 +6,16 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import skimage
 #from skimage.viewer import ImageViewer
+from skimage.io import imread
+from skimage.morphology import ball, disk, dilation, binary_erosion, remove_small_objects, erosion, closing, reconstruction, binary_closing
+from skimage.measure import label,regionprops, perimeter
+from skimage.morphology import binary_dilation, binary_opening
+from skimage.filters import roberts, sobel
+from skimage import measure, feature
+from skimage.segmentation import clear_border
+from skimage import data
 from pydicom.dataset import Dataset,FileDataset
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import xlwt
 from radiomics import featureextractor, getFeatureClasses
 from radiomics import firstorder, getTestCase, glcm, glrlm, glszm, imageoperations, shape,gldm,ngtdm
@@ -31,6 +40,9 @@ import gc
 import cv2
 import sys
 import skimage.transform as skTrans
+from scipy import ndimage as ndi
+import scipy.misc
+from glob import glob
 import warnings
 warnings.simplefilter('ignore')
 
@@ -75,6 +87,15 @@ try:
             applyOriginalImage = True
         else:
             applyOriginalImage = False
+
+        if applyWavelet:
+            ExtractPNG = messagebox.askquestion("Extract Image", "You want to save all slices as PNG format?")
+            if ExtractPNG == 'yes':
+                ExtractPNG = True
+            else:
+                ExtractPNG = False
+        else:
+            ExtractPNG = False
 
         P=0
         w=0
@@ -140,14 +161,59 @@ try:
                 m=m+1
                 n = 1
                 #Settings for Features Extraction
-                
-                #Settings per 10 STAS
-                settings={'binWidth': 10,'interpolator': sitk.sitkBSpline,'resampledPixelSpacing': None,'padDistance': 5,'normalize': False,'normalizeScale': 1,'correctMask': True,'symmetricalGLCM': True,'minimumROIDimensions': 2,'label': 1,'additionalInfo': True,'force2Ddimension': 0}
-                #Settings per 10n STAS
-                #settings={'binWidth': 10,'interpolator': sitk.sitkBSpline,'resampledPixelSpacing': [1,1,2],'padDistance': 5,'normalize': False,'normalizeScale': 1,'correctMask': True,'symmetricalGLCM': True,'minimumROIDimensions': 2,'label': 1,'additionalInfo': True,'force2Ddimension': 0}
 
+                settings={'binWidth': 25,
+                        'interpolator': sitk.sitkBSpline,
+                        'resampledPixelSpacing': [1,1,2],
+                        'padDistance': 5,
+                        'normalize': False,
+                        'normalizeScale': 1,
+                        'correctMask': True,
+                        'symmetricalGLCM': True,
+                        'minimumROIDimensions': 2,
+                        'label': 1,
+                        'additionalInfo': True,
+                        'force2Ddimension': 0}
                 image = sitk.ReadImage(ImagePath)
                 mask = sitk.ReadImage(LabelPath)
+
+
+
+                if ExtractPNG:
+                    titles = ['Approximation (LL)', ' Horizontal detail (LH)',
+                              'Vertical detail (HL)', 'Diagonal detail (HH)']
+                    test_image = nib.load(ImagePath).get_fdata()
+                    p=0
+                    Esistente3=False
+                    for tt in os.listdir(percorsoPaziente):
+                        if tt == 'Image PNG':
+                            Esistente3 = True
+                    if Esistente3 == False:
+                        os.mkdir(percorsoPaziente + '/Image PNG')
+                        while p!= test_image.shape[2]:
+                            slice = test_image[:,:,p]
+                            im=Image.fromarray(slice)
+                            coeffs2 = pywt.dwt2(im, 'haar',mode='symmetric')
+                            LL, (LH, HL, HH) = coeffs2
+                            fig = plt.figure(figsize=(12, 3))
+                            for i, a in enumerate([LL, LH, HL, HH]):
+                                ax = fig.add_subplot(1, 5, i + 1+1)
+                                ax.imshow(a, interpolation="nearest",cmap=plt.cm.gray)
+                                ax.set_title(titles[i], fontsize=10)
+                                ax.set_xticks([])
+                                ax.set_yticks([])
+
+                            ax = fig.add_subplot(1, 5, 1)
+                            ax.imshow(slice, interpolation="nearest", cmap=plt.cm.gray)
+                            ax.set_title('Original', fontsize=10)
+                            ax.set_xticks([])
+                            ax.set_yticks([])
+                            fig.tight_layout()
+                            #plt.show()
+                            fig.savefig(percorsoPaziente + '/Image PNG/'+testcase+str(p)+'.png')
+                            p=p+1
+
+
 
                 interpolator = settings.get('interpolator')
                 resampledPixelSpacing = settings.get('resampledPixelSpacing')
@@ -156,7 +222,8 @@ try:
                 bb, correctedMask = imageoperations.checkMask(image, mask,**settings)
                 if correctedMask is not None:
                     mask = correctedMask
-                #image, mask = imageoperations.cropToTumorMask(image, mask, bb)
+                if applyWavelet==False:
+                    image, mask = imageoperations.cropToTumorMask(image, mask, bb)
 
                 if applyOriginalImage:
                         # Show Shape features
@@ -402,184 +469,187 @@ try:
 
                 if applyWavelet:
 
-                        for decompositionImage, decompositionName, inputKwargs in imageoperations.getWaveletImage(image, mask):
-                            k = 2
-                            w = w + 1
-                            waveletShapeFeaturs = shape.RadiomicsShape(decompositionImage, mask, **settings)
-                            waveletShapeFeaturs.enableAllFeatures()
-                            results = waveletShapeFeaturs.execute()
-                            print('Calculated ShapeFeaturs features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                    for decompositionImage, decompositionName, inputKwargs in imageoperations.getWaveletImage(image,
+                                                                                                              mask):
+                        k = 2
+                        w = w + 1
+                        waveletShapeFeaturs = shape.RadiomicsShape(decompositionImage, mask, **settings)
+                        waveletShapeFeaturs.enableAllFeatures()
+                        results = waveletShapeFeaturs.execute()
 
-                            if m == 1:
+
+                        print('Calculated ShapeFeaturs features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
+
+                        if m == 1:
+                            if w == 1:
+                                sheet2 = workbook.add_sheet('Wavelet based image-' + Name[INIT])
+                                sheet2.write(0, 0, 'Patient_ID')
+                                sheet2.write(0, 1, 'Decomposition Name')
+
+                            sheet2.write(w, 0, str(testcase))
+                            sheet2.write(w, 1, str(decompositionName))
+                            for key, val in results.items():
                                 if w == 1:
-                                    sheet2 = workbook.add_sheet('Wavelet based image-' + Name[INIT])
-                                    sheet2.write(0, 0, 'Patient_ID')
-                                    sheet2.write(0, 1, 'Decomposition Name')
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            if w == 1:
+                                sheet2_2 = workbook.add_sheet('Wavelet based image-' + Name[INIT + 1])
+                                sheet2_2.write(0, 0, 'Patient_ID')
+                                sheet2_2.write(0, 1, 'Decomposition Name')
 
-                                sheet2.write(w, 0, str(testcase))
-                                sheet2.write(w, 1, str(decompositionName))
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
+                            sheet2_2.write(w, 0, str(testcase))
+                            sheet2_2.write(w, 1, str(decompositionName))
+                            for key, val in results.items():
                                 if w == 1:
-                                    sheet2_2 = workbook.add_sheet('Wavelet based image-' + Name[INIT + 1])
-                                    sheet2_2.write(0, 0, 'Patient_ID')
-                                    sheet2_2.write(0, 1, 'Decomposition Name')
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletShapeFeaturs
 
-                                sheet2_2.write(w, 0, str(testcase))
-                                sheet2_2.write(w, 1, str(decompositionName))
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletShapeFeaturs
+                        waveletFirstOrderFeaturs = firstorder.RadiomicsFirstOrder(decompositionImage, mask, **settings)
+                        waveletFirstOrderFeaturs.enableAllFeatures()
+                        results = waveletFirstOrderFeaturs.execute()
+                        print('Calculated firstorder features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletFirstOrderFeaturs = firstorder.RadiomicsFirstOrder(decompositionImage, mask, **settings)
-                            waveletFirstOrderFeaturs.enableAllFeatures()
-                            results = waveletFirstOrderFeaturs.execute()
-                            print('Calculated firstorder features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletFirstOrderFeaturs
 
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletFirstOrderFeaturs
+                        waveletglcmFeatures = glcm.RadiomicsGLCM(decompositionImage, mask, **settings)
+                        waveletglcmFeatures.enableAllFeatures()
+                        results = waveletglcmFeatures.execute()
+                        print('Calculated glcmFeatures features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletglcmFeatures = glcm.RadiomicsGLCM(decompositionImage, mask, **settings)
-                            waveletglcmFeatures.enableAllFeatures()
-                            results = waveletglcmFeatures.execute()
-                            print('Calculated glcmFeatures features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletglcmFeatures
 
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletglcmFeatures
+                        waveletgldmFeatures = gldm.RadiomicsGLDM(decompositionImage, mask, **settings)
+                        waveletgldmFeatures.enableAllFeatures()
+                        results = waveletgldmFeatures.execute()
+                        print('Calculated gldmFeatures features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletgldmFeatures = gldm.RadiomicsGLDM(decompositionImage, mask, **settings)
-                            waveletgldmFeatures.enableAllFeatures()
-                            results = waveletgldmFeatures.execute()
-                            print('Calculated gldmFeatures features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletgldmFeatures
 
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletgldmFeatures
+                        waveletglrlmFeatures = glrlm.RadiomicsGLRLM(decompositionImage, mask, **settings)
+                        waveletglrlmFeatures.enableAllFeatures()
+                        results = waveletglrlmFeatures.execute()
+                        print('Calculated glrlmFeatures features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletglrlmFeatures = glrlm.RadiomicsGLRLM(decompositionImage, mask, **settings)
-                            waveletglrlmFeatures.enableAllFeatures()
-                            results = waveletglrlmFeatures.execute()
-                            print('Calculated glrlmFeatures features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletglrlmFeatures
 
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletglrlmFeatures
+                        waveletglszmFeatures = glszm.RadiomicsGLSZM(decompositionImage, mask, **settings)
+                        waveletglszmFeatures.enableAllFeatures()
+                        results = waveletglszmFeatures.execute()
+                        print('Calculated glszmFeatures features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletglszmFeatures = glszm.RadiomicsGLSZM(decompositionImage, mask, **settings)
-                            waveletglszmFeatures.enableAllFeatures()
-                            results = waveletglszmFeatures.execute()
-                            print('Calculated glszmFeatures features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletglszmFeatures
 
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletglszmFeatures
+                        waveletngtdmFeatures = ngtdm.RadiomicsNGTDM(decompositionImage, mask, **settings)
+                        waveletngtdmFeatures.enableAllFeatures()
+                        results = waveletngtdmFeatures.execute()
+                        print('Calculated ngtdmFeatures features with wavelet ', decompositionName)
+                        for (key, val) in six.iteritems(results):
+                            waveletFeatureName = '%s_%s' % (str(decompositionName), key)
+                            print('  ', waveletFeatureName, ':', val)
 
-                            waveletngtdmFeatures = ngtdm.RadiomicsNGTDM(decompositionImage, mask, **settings)
-                            waveletngtdmFeatures.enableAllFeatures()
-                            results = waveletngtdmFeatures.execute()
-                            print('Calculated ngtdmFeatures features with wavelet ', decompositionName)
-                            for (key, val) in six.iteritems(results):
-                                waveletFeatureName = '%s_%s' % (str(decompositionName), key)
-                                print('  ', waveletFeatureName, ':', val)
-
-                            if m == 1:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2.write(0, k, str(key))
-                                    sheet2.write(w, k, str(val))
-                                    k = k + 1
-                            if m == 2:
-                                for key, val in results.items():
-                                    if w == 1:
-                                        sheet2_2.write(0, k, str(key))
-                                    sheet2_2.write(w, k, str(val))
-                                    k = k + 1
-                            del results
-                            del waveletngtdmFeatures
-                            gc.collect()               
+                        if m == 1:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2.write(0, k, str(key))
+                                sheet2.write(w, k, str(val))
+                                k = k + 1
+                        if m == 2:
+                            for key, val in results.items():
+                                if w == 1:
+                                    sheet2_2.write(0, k, str(key))
+                                sheet2_2.write(w, k, str(val))
+                                k = k + 1
+                        del results
+                        del waveletngtdmFeatures
+                        gc.collect()
 
 
         print('Finish')
@@ -603,5 +673,4 @@ except:
     print('Il paziente:'+testcase+' ha dato un errore')
     pathname1 = SaveAs()
     workbook.save(pathname1 + '/Results.csv')
-
 
