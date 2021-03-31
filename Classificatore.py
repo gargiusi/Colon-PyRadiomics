@@ -23,8 +23,9 @@ import warnings
 warnings.simplefilter('ignore')
 
 #prepara training e test set del dataset
-data=np.loadtxt('C:\\Users\\rac-g\\Desktop\\work\\10_STAS.csv',delimiter=';',skiprows=1)
-data2=np.loadtxt('C:\\Users\\rac-g\\Desktop\\work\\10_STAS.csv',delimiter=';',skiprows=0,dtype=str)
+Filename="C:\\Users\\rac-g\\Desktop\\work\\10_STAS.csv" ###################### Enter the full path of csv dataset
+data=np.loadtxt(Filename,delimiter=';',skiprows=1)
+data2=np.loadtxt(Filename,delimiter=';',skiprows=0,dtype=str)
 features=data2[0,1:-1]
 X=data[:,1:-1] #Data=Features
 y=data[:,-1] #Target=STAS
@@ -71,8 +72,7 @@ X=np.asarray(U).transpose()
 Indices=np.asarray(New_Indice).transpose()
 NewScores=np.asarray(Scores).transpose()
 features=np.asarray(feature_name).transpose()
-print(features)
-#print(Indices)#features selezionate
+#print(features)
 
 plt.bar(Indices, NewScores,width=.2,
         label=r'Univariate score Selected',color = 'g' )#IN VERDE: FEATURES SELEZIONATE CON ANOVA
@@ -112,9 +112,9 @@ X_test = scaler.transform(X_test)
 KNN=KNeighborsClassifier(n_neighbors=5,weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X)})
 KNN = KNN.fit(X_train, y_train)
 
-y_pred = KNN.predict(X_test)
-print(classification_report(y_test, y_pred))
-print(confusion_matrix(y_test, y_pred))
+#y_pred = KNN.predict(X_test)
+#print(classification_report(y_test, y_pred))
+#print(confusion_matrix(y_test, y_pred))
 
 
 #print('TRAIN')
@@ -135,16 +135,7 @@ del(train_index,test_index,KNN,kf,scaler)
 #...................................#
 model = Lasso(alpha=1,max_iter=1000)
 model.fit(X, y)
-y_predict=model.predict(X_test)
-#print(model.intercept_)
-#plt.figure(3)
-#plt.scatter(y_predict,y_test)
-#plt.colorbar()
-#plt.plot(y_test,y_test)
-#plt.show()
-#plt.figure(4)
-#sns.distplot(y_test-y_predict)
-#plt.show()
+
 Coef_Lasso=model.coef_
 New_Indice=[]
 for i in range(0,T):
