@@ -39,7 +39,7 @@ if 1:
 X_uni = X_train
 y_uni=y_train
 #y_uni=np.random.permutation(y_uni)
-T=20 #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
+T=25 #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
 plt.figure(1)
 
 
@@ -139,18 +139,18 @@ KNN = KNN.fit(X_uni, y_uni)
 
 K_pred_train = KNN.predict(np.array(X_uni))
 
-print('TRAIN')
+print('\nTRAIN')
 print('Accuracy model on train: %.2f ' % (metrics.accuracy_score(K_pred_train, y_uni)))
 print('Precision and Sensibility model on train: %.2f' % (metrics.f1_score(K_pred_train, y_uni)))
 
 
 K_pred_test = KNN.predict(X_test)
-print('TEST')
+print('\nTEST')
 print('Accuracy model on test: %.2f ' % (metrics.accuracy_score(K_pred_test, y_test)))
 print('Precision and Sensibility model on test: %.2f' % (metrics.f1_score(K_pred_test, y_test)))
 
 K_pred_base = np.ones(y_test.shape)
-print('STUPIDO classificatore con tutti 1 on TEST')
+print('\nSTUPIDO classificatore con tutti 1 on TEST')
 print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
 print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
 
@@ -177,7 +177,7 @@ for tit,cl,y in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_tr
   
 
 # %%Esempio di cross validation
-
+print('\n\nCROSS VALIDATION \n\n')
 y_uni=y_uni.astype('int16')
 
 skf = StratifiedKFold(n_splits=5,shuffle=True)
@@ -187,7 +187,7 @@ pesi=np.zeros([len(names),5])
 for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
     
     
-    model = LogisticRegression(C=5,penalty='l1',class_weight='balanced',solver='liblinear')
+    model = LogisticRegression(C=8,penalty='l1',class_weight='balanced',solver='liblinear')
     model.fit(X_uni[train,:], y_uni[train])
     fpr, tpr, thresholds = metrics.roc_curve(y_uni[test],model.predict(X_uni[test,:]))
     acc[i]=metrics.accuracy_score(y_uni[test],model.predict(X_uni[test,:]))
@@ -207,6 +207,15 @@ ytable=axs.table(cellText=pesi, cellColours=None, cellLoc='right', colWidths=Non
 
 ytable.set_fontsize(34)
 ytable.scale(1, 4)
+
+# %%
+model.fit(X_uni, y_uni)
+acc_lasso_test=metrics.accuracy_score(y_test,model.predict(X_test))
+
+
+print('\n\nLASSO TEST')
+print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
+
 
 # =============================================================================
 # # %%
