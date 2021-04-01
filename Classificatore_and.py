@@ -45,15 +45,22 @@ plt.figure(1)
 
 selector = SelectKBest(f_classif, k=T)
 #selector = SelectPercentile(f_classif, percentile=10)
-X_uni =selector.fit_transform(X_uni, y_uni)
-X_test=selector.transform(X_test)
+selector.fit(X_uni, y_uni)
+
 scores = -np.log10(selector.pvalues_)
 scores /= scores.max()
-sorted_features=np.argsort(scores)
-print(features[sorted_features[-T::-1]])
+sorted_features=np.argsort(selector.pvalues_)
+print(features[sorted_features[:T]])
+
+# %%trasformo e ordino - lo faccio a mano perchè così sono ordinati
+X_uni=X_uni[:,sorted_features[:T]]
+
+X_test=X_test[:,sorted_features[:T]]
+
+names = features[sorted_features[:T]]
+# %%istogramma tutte
 
 
-#istogramma tutte
 f,ax=plt.subplots(1)
 ax.hist(selector.pvalues_,25,density=True)
 ax.set_title('p-value, full dataset')
@@ -61,7 +68,7 @@ ax.set_xlabel('p-value')
 ax.set_ylabel('Probability density')
 #istogramma best
 f,ax=plt.subplots(1)
-ax.hist(selector.pvalues_[sorted_features[-T:]],15,density=True)
+ax.hist(selector.pvalues_[sorted_features[:T]],15,density=True)
 ax.set_title('p-value, best 30')
 ax.set_xlabel('p-value')
 ax.set_ylabel('Probability density')
@@ -69,7 +76,7 @@ ax.set_ylabel('Probability density')
 # %%histogram best 4 features
 f,axex=plt.subplots(4,2,figsize=(15,10))
 for i, ax in enumerate(axex.flat):
-    sel=sorted_features[-i-1]
+    sel=sorted_features[i]
     ax.hist(X[y==1,sel],density=True,histtype='bar',alpha=0.4,label='STAS')
     ax.hist(X[y==0,sel],density=True,histtype='bar',alpha=0.4,label='NOSTAS')
     # "{:.2e}".format(12300000)
@@ -81,7 +88,7 @@ f.tight_layout()
 
 # %% matrice di correlazione
 correlation_p=np.corrcoef(X_uni,rowvar=False)
-names = features[sorted_features[-T:]]
+#names = features[sorted_features[:T]]
 f = plt.figure(figsize=(2*T, 2*T))
 plt.matshow(correlation_p, fignum=f.number)
 plt.xticks(range(len(names)),names, fontsize=14, rotation=45)
@@ -176,6 +183,7 @@ y_uni=y_uni.astype('int16')
 skf = StratifiedKFold(n_splits=5,shuffle=True)
 auc=np.zeros([5])
 acc=np.zeros([5])
+pesi=np.zeros([len(names),5])
 for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
     
     
@@ -187,7 +195,18 @@ for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
     print('K= {} |AUC -  {:.2f}   |   ACC -  {:.2f}'.format(
         i,auc[i], acc[i]))
 
-    #np.round(model.coef_/np.abs(np.max(model.coef_)),3)
+    pesi[:,i]=(np.round(model.coef_/np.max(np.abs(model.coef_)),2))
+
+
+# %%stampo tabella dei pesi
+list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
+fig, axs =plt.subplots(1,figsize=(8, 4))
+axs.axis('tight')
+axs.axis('off')
+ytable=axs.table(cellText=pesi, cellColours=None, cellLoc='right', colWidths=None, rowLabels=names, rowColours=None, rowLoc='left', colLabels=list2, colColours=None, colLoc='center', loc='bottom', bbox=None, edges='closed')
+
+ytable.set_fontsize(34)
+ytable.scale(1, 4)
 
 # =============================================================================
 # # %%
