@@ -15,6 +15,20 @@ from collections import Counter
 from sklearn.metrics import confusion_matrix, plot_confusion_matrix
 from sklearn.model_selection import StratifiedKFold, KFold
 
+
+#parametri (in futuro da riga di comando)
+param = {
+    'N_features': 30, 
+    'corr_cut':0.85, 
+    'do_scaler': True,
+    'do_corr_cut': True,
+    'do_SMOTE': False
+    
+    }  
+
+
+
+
 #prepara training e test set del dataset
 Filename='/media/andrea/DATA/STAS/rachele/codice_tesi/Tesi//10_STAS.csv' ###################### Enter the full path of csv dataset
 data=np.loadtxt(Filename,delimiter=';',skiprows=1)
@@ -25,7 +39,7 @@ y=data[:,-1] #Target=STAS
 
 X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.10,stratify=y,shuffle=True)#con stratify=y abbiamo che test size=25%
 # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
-if 1:
+if param['do_scaler']:
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
@@ -39,7 +53,7 @@ if 1:
 X_uni = X_train
 y_uni=y_train
 #y_uni=np.random.permutation(y_uni)
-T=25 #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
+T=param['N_features'] #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
 plt.figure(1)
 
 
@@ -103,7 +117,7 @@ X_tmp = X_uni
 columns = np.full((correlation_p.shape[0],), True, dtype=bool)
 for i in range(correlation_p.shape[0]):
     for j in range(i+1, correlation_p.shape[0]):
-        if correlation_p[i,j] >= 0.85:
+        if correlation_p[i,j] >= param['corr_cut']:
             if columns[j]:
                columns[j] = False
                
@@ -120,12 +134,12 @@ ax.xaxis.set_ticks_position('top')
 cb = plt.colorbar()
 cb.ax.tick_params(labelsize=14)
 #plt.title('Correlation Matrix Post Cut', fontsize=16);
-if 1:
+if param['do_corr_cut']:
     X_uni = X_tmp
     X_test = X_test[:,columns]
 # %%
-if 0:
-    oversample = SMOTE(k_neighbors=3)
+if param['do_SMOTE']:
+    oversample = SMOTE(k_neighbors=4)
     X_uni, y_uni = oversample.fit_resample(X_uni, y_uni)
 
 # %%
