@@ -18,11 +18,12 @@ from sklearn.model_selection import StratifiedKFold, KFold
 
 #parametri (in futuro da riga di comando)
 param = {
-    'N_features': 30, 
+    'N_features': 15, 
     'corr_cut':0.85, 
     'do_scaler': True,
     'do_corr_cut': True,
-    'do_SMOTE': False
+    'do_SMOTE': True,
+    'shuffle_labels': False
     
     }  
 
@@ -36,8 +37,11 @@ data2=np.loadtxt(Filename,delimiter=';',skiprows=0,dtype=str)
 features=data2[0,1:-16]
 X=data[:,1:-16] #Data=Features
 y=data[:,-1] #Target=STAS
+if param['shuffle_labels']:
+    y=np.random.permutation(y)
 
-X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.10,stratify=y,shuffle=True)#con stratify=y abbiamo che test size=25%
+
+X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.15,shuffle=True)#con stratify=y abbiamo che test size=25%
 # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
 if param['do_scaler']:
     scaler = StandardScaler()
@@ -146,8 +150,8 @@ if param['do_SMOTE']:
 
 
 
-#KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
-KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
+KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
+#KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
 
 KNN = KNN.fit(X_uni, y_uni)
 
@@ -201,7 +205,7 @@ pesi=np.zeros([len(names),5])
 for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
     
     
-    model = LogisticRegression(C=8,penalty='l1',class_weight='balanced',solver='liblinear')
+    model = LogisticRegression(C=5,penalty='l1',class_weight='balanced',solver='liblinear')
     model.fit(X_uni[train,:], y_uni[train])
     fpr, tpr, thresholds = metrics.roc_curve(y_uni[test],model.predict(X_uni[test,:]))
     acc[i]=metrics.accuracy_score(y_uni[test],model.predict(X_uni[test,:]))
@@ -211,7 +215,8 @@ for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
 
     pesi[:,i]=(np.round(model.coef_/np.max(np.abs(model.coef_)),2))
 
-
+print('\nMean AUC: {:.2f} +/- {:.2f}   |  Mean ACC: {:.2f} +/- {:.2f}'.format(
+        auc.mean(),auc.std(), acc.mean(),acc.std()))
 # %%stampo tabella dei pesi
 list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
 fig, axs =plt.subplots(1,figsize=(8, 4))
