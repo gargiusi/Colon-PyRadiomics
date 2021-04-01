@@ -2,26 +2,18 @@ from sklearn.model_selection import train_test_split,cross_val_score,RepeatedStr
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.feature_selection import SelectKBest,chi2, f_classif,SelectFromModel,SelectPercentile
 from sklearn.preprocessing import MinMaxScaler,StandardScaler
-from sklearn.svm import LinearSVC
-from sklearn.datasets import make_classification
-from sklearn.tree import DecisionTreeClassifier
 from sklearn import metrics,linear_model
 from sklearn.metrics import classification_report
 from sklearn.linear_model import LassoCV,LinearRegression,Lasso
 import numpy as np
-from numpy import where,mean,std,absolute
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from imblearn.over_sampling import _random_over_sampler,BorderlineSMOTE,SMOTENC,SMOTE,RandomOverSampler
 from sklearn.linear_model import LogisticRegression,LassoCV
-from imblearn.pipeline import make_pipeline,Pipeline
-from imblearn.under_sampling import RandomUnderSampler
-from scipy.spatial.distance import cdist
 from collections import Counter
-import warnings
 from sklearn.metrics import confusion_matrix, plot_confusion_matrix
-warnings.simplefilter('ignore')
+from sklearn.model_selection import StratifiedKFold, KFold
 
 #prepara training e test set del dataset
 Filename='/media/andrea/DATA/STAS/rachele/codice_tesi/Tesi//10_STAS.csv' ###################### Enter the full path of csv dataset
@@ -31,11 +23,12 @@ features=data2[0,1:-16]
 X=data[:,1:-16] #Data=Features
 y=data[:,-1] #Target=STAS
 
-X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.2,stratify=y)#con stratify=y abbiamo che test size=25%
+X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.10,stratify=y,shuffle=True)#con stratify=y abbiamo che test size=25%
 # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+if 1:
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
 
 # %% #..................................................................................................................
 
@@ -46,7 +39,7 @@ X_test = scaler.transform(X_test)
 X_uni = X_train
 y_uni=y_train
 #y_uni=np.random.permutation(y_uni)
-T=5 #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
+T=20 #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
 plt.figure(1)
 
 
@@ -95,11 +88,36 @@ plt.xticks(range(len(names)),names, fontsize=14, rotation=45)
 plt.yticks(range(len(names)),names, fontsize=14)
 cb = plt.colorbar()
 cb.ax.tick_params(labelsize=14)
+ax.xaxis.set_ticks_position('top')
 #plt.title('Correlation Matrix', fontsize=16);
-
-
 # %%
+X_tmp = X_uni
+#taglio sulla correlazione e replot
+columns = np.full((correlation_p.shape[0],), True, dtype=bool)
+for i in range(correlation_p.shape[0]):
+    for j in range(i+1, correlation_p.shape[0]):
+        if correlation_p[i,j] >= 0.85:
+            if columns[j]:
+               columns[j] = False
+               
+X_tmp = X_tmp[:,columns]
+names = names[columns]
+
+correlation_p=np.corrcoef(X_tmp,rowvar=False)
+
+f = plt.figure(figsize=(2*T, 2*T))
+plt.matshow(correlation_p, fignum=f.number)
+plt.xticks(range(len(names)),names, fontsize=14, rotation=45)
+plt.yticks(range(len(names)),names, fontsize=14)
+ax.xaxis.set_ticks_position('top')
+cb = plt.colorbar()
+cb.ax.tick_params(labelsize=14)
+#plt.title('Correlation Matrix Post Cut', fontsize=16);
 if 1:
+    X_uni = X_tmp
+    X_test = X_test[:,columns]
+# %%
+if 0:
     oversample = SMOTE(k_neighbors=3)
     X_uni, y_uni = oversample.fit_resample(X_uni, y_uni)
 
@@ -107,7 +125,9 @@ if 1:
 
 
 
-KNN=KNeighborsClassifier(n_neighbors=3, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
+#KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
+KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
+
 KNN = KNN.fit(X_uni, y_uni)
 
 K_pred_train = KNN.predict(np.array(X_uni))
@@ -123,7 +143,7 @@ print('Accuracy model on test: %.2f ' % (metrics.accuracy_score(K_pred_test, y_t
 print('Precision and Sensibility model on test: %.2f' % (metrics.f1_score(K_pred_test, y_test)))
 
 K_pred_base = np.ones(y_test.shape)
-print('Stupido classificatore con tutti 1 on TEST')
+print('STUPIDO classificatore con tutti 1 on TEST')
 print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
 print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
 
@@ -138,12 +158,36 @@ confusion_matrix( y_test,K_pred_base)/len( y_test)
                                  #normalize=normalize)
 #disp.ax_.set_title(title)
 
-# %% matrice di correlazione
-confusion_m=confusion_matrix( y_test,K_pred_base)/len( y_test)
-df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
-plt.figure(figsize=(5,5))
-sns.set(font_scale=1.4) # for label size
-sns.heatmap(df_cm, annot=True, annot_kws={"size": 16}) # 
+# %% matrice di confusione
+#f,ax =subplot(3,1)
+
+for tit,cl,y in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni]):
+    confusion_m=confusion_matrix( y,cl)/len( y)
+    df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
+    plt.figure(figsize=(5,5))
+    sns.set(font_scale=1.4) # for label size
+    sns.heatmap(df_cm, annot=True, annot_kws={"size": 16}).set_title(tit) # 
+  
+
+# %%Esempio di cross validation
+
+y_uni=y_uni.astype('int16')
+
+skf = StratifiedKFold(n_splits=5,shuffle=True)
+auc=np.zeros([5])
+acc=np.zeros([5])
+for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
+    
+    
+    model = LogisticRegression(C=5,penalty='l1',class_weight='balanced',solver='liblinear')
+    model.fit(X_uni[train,:], y_uni[train])
+    fpr, tpr, thresholds = metrics.roc_curve(y_uni[test],model.predict(X_uni[test,:]))
+    acc[i]=metrics.accuracy_score(y_uni[test],model.predict(X_uni[test,:]))
+    auc[i]=metrics.auc(fpr, tpr)
+    print('K= {} |AUC -  {:.2f}   |   ACC -  {:.2f}'.format(
+        i,auc[i], acc[i]))
+
+    #np.round(model.coef_/np.abs(np.max(model.coef_)),3)
 
 # =============================================================================
 # # %%
