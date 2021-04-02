@@ -18,11 +18,13 @@ from sklearn.model_selection import StratifiedKFold, KFold
 
 #parametri (in futuro da riga di comando)
 param = {
-    'N_features': 15, 
+    'test_hold':0.25,
+    'stratify':True,
+    'N_features': 25, 
     'corr_cut':0.85, 
     'do_scaler': True,
     'do_corr_cut': True,
-    'do_SMOTE': True,
+    'do_SMOTE': False,
     'shuffle_labels': False,
     'lasso_cut': True
     
@@ -42,7 +44,7 @@ if param['shuffle_labels']:
     y=np.random.permutation(y)
 
 
-X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=0.15,shuffle=True)#con stratify=y abbiamo che test size=25%
+X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=param['test_hold'],shuffle=True,stratify=(y if param['stratify']  else None))#con stratify=y abbiamo che test size=25%
 # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
 if param['do_scaler']:
     scaler = StandardScaler()
@@ -72,6 +74,8 @@ sorted_features=np.argsort(selector.pvalues_)
 print(features[sorted_features[:T]])
 
 # %%trasformo e ordino - lo faccio a mano perchè così sono ordinati
+print(''.join(45*['-']))
+print('SELEZIONO {} Features'.format(T))
 X_uni=X_uni[:,sorted_features[:T]]
 
 X_test=X_test[:,sorted_features[:T]]
@@ -88,18 +92,18 @@ ax.set_ylabel('Probability density')
 #istogramma best
 f,ax=plt.subplots(1)
 ax.hist(selector.pvalues_[sorted_features[:T]],15,density=True)
-ax.set_title('p-value, best 30')
+ax.set_title('p-value, best {}'.format(T))
 ax.set_xlabel('p-value')
 ax.set_ylabel('Probability density')
 
-# %%histogram best 4 features
+# %%histogram best 8 features
 f,axex=plt.subplots(4,2,figsize=(15,10))
 for i, ax in enumerate(axex.flat):
     sel=sorted_features[i]
     ax.hist(X[y==1,sel],density=True,histtype='bar',alpha=0.4,label='STAS')
     ax.hist(X[y==0,sel],density=True,histtype='bar',alpha=0.4,label='NOSTAS')
     # "{:.2e}".format(12300000)
-    ax.set_title("{:.2e}".format(selector.pvalues_[sel],3))
+    ax.set_title("p-value = {:.2e}".format(selector.pvalues_[sel],3))
     ax.set_xlabel(features[sel])
     ax.set_ylabel('Probability density')
     ax.legend()
@@ -110,10 +114,10 @@ correlation_p=np.corrcoef(X_uni,rowvar=False)
 #names = features[sorted_features[:T]]
 f = plt.figure(figsize=(2*T, 2*T))
 plt.matshow(correlation_p, fignum=f.number)
-plt.xticks(range(len(names)),names, fontsize=14, rotation=45)
-plt.yticks(range(len(names)),names, fontsize=14)
+plt.xticks(range(len(names)),names, fontsize=4*T, rotation=90)
+plt.yticks(range(len(names)),names, fontsize=4*T)
 cb = plt.colorbar()
-cb.ax.tick_params(labelsize=14)
+cb.ax.tick_params(labelsize=6*T)
 ax.xaxis.set_ticks_position('top')
 #plt.title('Correlation Matrix', fontsize=16);
 # %%
@@ -121,13 +125,13 @@ X_tmp = X_uni
 #taglio sulla correlazione e replot
 columns = np.full((correlation_p.shape[0],), True, dtype=bool)
 for i in range(correlation_p.shape[0]):
-    for j in range(i+1, correlation_p.shape[0]):
-        if correlation_p[i,j] >= param['corr_cut']:
+    for j in range(i+1, correlation_p.shape[0]):# dovrebbe contare a partire da destra
+        if np.abs(correlation_p[i,j]) >= param['corr_cut']: #taglio anche le corr negative
             if columns[j]:
                columns[j] = False
                
 X_tmp = X_tmp[:,columns]
-names = names[columns]
+names = names[columns]# possibile bug taglia  sempre
 
 correlation_p=np.corrcoef(X_tmp,rowvar=False)
 
@@ -140,18 +144,24 @@ cb = plt.colorbar()
 cb.ax.tick_params(labelsize=14)
 #plt.title('Correlation Matrix Post Cut', fontsize=16);
 if param['do_corr_cut']:
+    print(''.join(45*['-']))
+    print('TAGLIO SULLA CORRELAZIONE\n |corr| > {:.2f} --> Tengo {} Features'.format(param['corr_cut'],np.sum(columns)))
     X_uni = X_tmp
     X_test = X_test[:,columns]
+    print(names)
 # %%
 if param['do_SMOTE']:
+    print(''.join(45*['-']))
+    print('OVERSAMPLING SMOTE\n')
     oversample = SMOTE(k_neighbors=4)
     X_uni, y_uni = oversample.fit_resample(X_uni, y_uni)
 
 # %%
 
+print(''.join(45*['-']))
+print('K-NN\n')
 
-
-KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
+KNN=KNeighborsClassifier(n_neighbors=5, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
 #KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
 
 KNN = KNN.fit(X_uni, y_uni)
@@ -188,7 +198,7 @@ confusion_matrix( y_test,K_pred_base)/len( y_test)
 #f,ax =subplot(3,1)
 
 for tit,cl,y in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni]):
-    confusion_m=confusion_matrix( y,cl)/len( y)
+    confusion_m=confusion_matrix( y,cl,normalize='pred')
     df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
     plt.figure(figsize=(5,5))
     sns.set(font_scale=1.4) # for label size
@@ -196,7 +206,7 @@ for tit,cl,y in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_tr
   
 
 # %%Esempio di cross validation
-print('\n\nCROSS VALIDATION \n\n')
+print('\n\nCROSS VALIDATION with lasso for feature selection\n\n')
 y_uni=y_uni.astype('int16')
 
 skf = StratifiedKFold(n_splits=5,shuffle=True)
@@ -241,17 +251,25 @@ print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
 print('\nLASSO dropped {} feature/s '.format(np.sum(acc<prev)))
 
 # %% selectio based on lasso scores? (non si fa così)
-if param['lasso_cut']:
-    selected_over_lasso = abs(np.average(pesi,axis=1, weights=(acc>prev)*acc))>0.1
+if (np.sum(acc<prev)>0 & param['lasso_cut']):
+    selected_over_lasso = abs(np.average(pesi,axis=1, weights=((acc>prev)*acc)+1e-3))>0.15
     X_uni=X_uni[:,selected_over_lasso]
     X_test=X_test[:,selected_over_lasso]
+    names=names[selected_over_lasso]
+
+    print('Selected Features for TEST :\n {}'.format(names))
 
 
-    
+    model.fit(X_uni, y_uni)
+    acc_lasso_test=metrics.accuracy_score(y_test,model.predict(X_test))
+
+
+    print('\n\nLASSO TEST su spazio ristretto')
+    print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
 
 
 # %%
-
+    print('\n\nRipeto K-NN su spazio ristretto')
     #KNN=KNeighborsClassifier(n_neighbors=3, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
     KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
     
@@ -273,6 +291,19 @@ if param['lasso_cut']:
     print('\nSTUPIDO classificatore con tutti 1 on TEST')
     print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
     print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
+    
+# %%   
+    
+    for tit,cl,y in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni]):
+        confusion_m=confusion_matrix( y,cl,normalize='pred')
+        df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
+        plt.figure(figsize=(5,5))
+        sns.set(font_scale=1.4) # for label size
+        sns.heatmap(df_cm, annot=True, annot_kws={"size": 16}).set_title('red. Space'+tit) # 
+    
+elif np.sum(acc<prev)==0:
+    print('LASSO DID NOT FIND FEATURES TO DROP')
+        
 # =============================================================================
 # # %%
 # 
