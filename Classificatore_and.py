@@ -23,7 +23,8 @@ param = {
     'do_scaler': True,
     'do_corr_cut': True,
     'do_SMOTE': True,
-    'shuffle_labels': False
+    'shuffle_labels': False,
+    'lasso_cut': True
     
     }  
 
@@ -202,6 +203,7 @@ skf = StratifiedKFold(n_splits=5,shuffle=True)
 auc=np.zeros([5])
 acc=np.zeros([5])
 pesi=np.zeros([len(names),5])
+prev=np.zeros([5])#prevalenza di stas
 for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
     
     
@@ -214,6 +216,7 @@ for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
         i,auc[i], acc[i]))
 
     pesi[:,i]=(np.round(model.coef_/np.max(np.abs(model.coef_)),2))
+    prev[i]=np.sum(y_uni[test]==1)/len(y_uni[test])
 
 print('\nMean AUC: {:.2f} +/- {:.2f}   |  Mean ACC: {:.2f} +/- {:.2f}'.format(
         auc.mean(),auc.std(), acc.mean(),acc.std()))
@@ -235,7 +238,41 @@ acc_lasso_test=metrics.accuracy_score(y_test,model.predict(X_test))
 print('\n\nLASSO TEST')
 print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
 
+print('\nLASSO dropped {} feature/s '.format(np.sum(acc<prev)))
 
+# %% selectio based on lasso scores? (non si fa così)
+if param['lasso_cut']:
+    selected_over_lasso = abs(np.average(pesi,axis=1, weights=(acc>prev)*acc))>0.1
+    X_uni=X_uni[:,selected_over_lasso]
+    X_test=X_test[:,selected_over_lasso]
+
+
+    
+
+
+# %%
+
+    #KNN=KNeighborsClassifier(n_neighbors=3, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
+    KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
+    
+    KNN = KNN.fit(X_uni, y_uni)
+    
+    K_pred_train = KNN.predict(np.array(X_uni))
+    
+    print('\nTRAIN')
+    print('Accuracy model on train: %.2f ' % (metrics.accuracy_score(K_pred_train, y_uni)))
+    print('Precision and Sensibility model on train: %.2f' % (metrics.f1_score(K_pred_train, y_uni)))
+    
+    
+    K_pred_test = KNN.predict(X_test)
+    print('\nTEST')
+    print('Accuracy model on test: %.2f ' % (metrics.accuracy_score(K_pred_test, y_test)))
+    print('Precision and Sensibility model on test: %.2f' % (metrics.f1_score(K_pred_test, y_test)))
+    
+    K_pred_base = np.ones(y_test.shape)
+    print('\nSTUPIDO classificatore con tutti 1 on TEST')
+    print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
+    print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
 # =============================================================================
 # # %%
 # 
