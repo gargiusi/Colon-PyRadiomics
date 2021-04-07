@@ -14,19 +14,25 @@ from sklearn.linear_model import LogisticRegression,LassoCV
 from collections import Counter
 from sklearn.metrics import confusion_matrix, plot_confusion_matrix
 from sklearn.model_selection import StratifiedKFold, KFold
-
-
+from scipy import stats
+from sklearn.ensemble import ExtraTreesClassifier
+from utils import print_confusion_matrix,print_corr_matrix,find_correlated,corr_matrix,print_hist_rack
+from sklearn import svm
 #parametri (in futuro da riga di comando)
+# %%
 param = {
-    'test_hold':0.25,
-    'stratify':True,
+    'outer_split':4,
+    'stratify':True,#not in use
     'N_features': 25, 
-    'corr_cut':0.85, 
+    'corr_cut':0.80, 
     'do_scaler': True,
     'do_corr_cut': True,
     'do_SMOTE': False,
     'shuffle_labels': False,
-    'lasso_cut': True
+    'lasso_cut': True,
+    'print_fig': False,
+    'corr_type': 'spearman', #can also be "pearson"
+    'remove_out':True, # removing outliers before correlation calculation
     
     }  
 
@@ -34,7 +40,7 @@ param = {
 
 
 
-#prepara training e test set del dataset
+# %%prepara training e test set del dataset
 Filename='/media/andrea/DATA/STAS/rachele/codice_tesi/Tesi//10_STAS.csv' ###################### Enter the full path of csv dataset
 data=np.loadtxt(Filename,delimiter=';',skiprows=1)
 data2=np.loadtxt(Filename,delimiter=';',skiprows=0,dtype=str)
@@ -44,16 +50,16 @@ y=data[:,-1] #Target=STAS
 if param['shuffle_labels']:
     y=np.random.permutation(y)
 
-skf = StratifiedKFold(n_splits=4,shuffle=True)
+out_k=param['outer_split']
+skf = StratifiedKFold(n_splits=out_k,shuffle=True)
 #auc_total=np.zeros([4])
-acc_before_lasso=np.zeros([4])
-acc_after_lasso=np.zeros([4])
+acc_before_lasso=np.zeros([out_k])
+acc_after_lasso=np.zeros([out_k])
 selected_feature_out=[]
 
 for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     print('\n\tFOLD = {}\n'.format(k))
-    #X_train, X_test, y_train, y_test=train_test_split(X,y,test_size=param['test_hold'],shuffle=True,stratify=(y if param['stratify']  else None))#con stratify=y abbiamo che test size=25%
-    # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
+    
     X_train=X[train_out,:]
     y_train=y[train_out]
     X_test=X[test_out,:]
@@ -110,57 +116,33 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     ax.set_ylabel('Probability density')
     
     # %%histogram best 8 features
-    f,axex=plt.subplots(4,2,figsize=(15,10))
-    for i, ax in enumerate(axex.flat):
-        sel=sorted_features[i]
-        ax.hist(X[y==1,sel],density=True,histtype='bar',alpha=0.4,label='STAS')
-        ax.hist(X[y==0,sel],density=True,histtype='bar',alpha=0.4,label='NOSTAS')
-        # "{:.2e}".format(12300000)
-        ax.set_title("p-value = {:.2e}".format(selector.pvalues_[sel],3))
-        ax.set_xlabel(features[sel])
-        ax.set_ylabel('Probability density')
-        ax.legend()
-    f.tight_layout()
+    if param['print_fig']:
+        print_hist_rack(X,y,features,sorted_features,selector.pvalues_)
+        
     
     # %% matrice di correlazione
-    correlation_p=np.corrcoef(X_uni,rowvar=False)
-    #names = features[sorted_features[:T]]
-    f = plt.figure(figsize=(2*T, 2*T))
-    plt.matshow(correlation_p, fignum=f.number)
-    plt.xticks(range(len(names)),names, fontsize=4*T, rotation=90)
-    plt.yticks(range(len(names)),names, fontsize=4*T)
-    cb = plt.colorbar()
-    cb.ax.tick_params(labelsize=6*T)
-    ax.xaxis.set_ticks_position('top')
-    #plt.title('Correlation Matrix', fontsize=16);
-    # %%
-    X_tmp = X_uni
-    #taglio sulla correlazione e replot
-    columns = np.full((correlation_p.shape[0],), True, dtype=bool)
-    for i in range(correlation_p.shape[0]):
-        for j in range(i+1, correlation_p.shape[0]):# dovrebbe contare a partire da destra
-            if np.abs(correlation_p[i,j]) >= param['corr_cut']: #taglio anche le corr negative
-                if columns[j]:
-                   columns[j] = False
+    correlation_p=corr_matrix(X_uni,param)
+   
+    if param['print_fig']:
+        print_corr_matrix(correlation_p,T,names)
+   
+    
+    
+    columns = find_correlated(correlation_p,param)
                    
-    X_tmp = X_tmp[:,columns]
-    names = names[columns]# possibile bug taglia  sempre
+    X_tmp = X_uni[:,columns]
     
-    correlation_p=np.corrcoef(X_tmp,rowvar=False)
     
-    f = plt.figure(figsize=(2*T, 2*T))
-    plt.matshow(correlation_p, fignum=f.number)
-    plt.xticks(range(len(names)),names, fontsize=14, rotation=45)
-    plt.yticks(range(len(names)),names, fontsize=14)
-    ax.xaxis.set_ticks_position('top')
-    cb = plt.colorbar()
-    cb.ax.tick_params(labelsize=14)
-    #plt.title('Correlation Matrix Post Cut', fontsize=16);
+    correlation_p=corr_matrix(X_tmp,param)
+    if param['print_fig']:
+        print_corr_matrix(correlation_p,T,names[columns])
+        
     if param['do_corr_cut']:
         print(''.join(45*['-']))
         print('TAGLIO SULLA CORRELAZIONE\n |corr| > {:.2f} --> Tengo {} Features'.format(param['corr_cut'],np.sum(columns)))
         X_uni = X_tmp
         X_test = X_test[:,columns]
+        names = names[columns]
         print(names)
     # %%
     if param['do_SMOTE']:
@@ -176,7 +158,8 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     
     #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
     #KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
-    KNN=KNeighborsClassifier(n_neighbors=4, weights='uniform',algorithm='brute')
+    #KNN=KNeighborsClassifier(n_neighbors=4, weights='uniform',algorithm='brute')
+    KNN=svm.SVC(class_weight = 'balanced')
     KNN = KNN.fit(X_uni, y_uni)
     
     K_pred_train = KNN.predict(np.array(X_uni))
@@ -199,24 +182,13 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     acc_before_lasso[k]=metrics.accuracy_score(K_pred_test, y_test)
     #matrici di confusione
     
-    confusion_matrix( y_test,K_pred_base)/len( y_test)
-    #questo è con il pacchetto
-    #disp = plot_confusion_matrix(classifier, X_test, y_test,
-                                     #display_labels=class_names,
-                                     #cmap=plt.cm.Blues,
-                                     #normalize=normalize)
-    #disp.ax_.set_title(title)
+   
     
     # %% matrice di confusione
     #f,ax =subplot(3,1)
-    
-    for tit,cl,y_i in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni]):
-        confusion_m=confusion_matrix( y_i,cl,normalize='pred')
-        df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
-        plt.figure(figsize=(5,5))
-        sns.set(font_scale=1.4) # for label size
-        sns.heatmap(df_cm, annot=True, annot_kws={"size": 16}).set_title(tit) # 
-      
+    if param['print_fig']:
+        print_confusion_matrix([K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni],title_prefix='before lasso')
+          
     
     # %%Esempio di cross validation
     print('\n\nCROSS VALIDATION with lasso for feature selection\n\n')
@@ -244,14 +216,15 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     print('\nMean AUC: {:.2f} +/- {:.2f}   |  Mean ACC: {:.2f} +/- {:.2f}'.format(
             auc.mean(),auc.std(), acc.mean(),acc.std()))
     # %%stampo tabella dei pesi
-    list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
-    fig, axs =plt.subplots(1,figsize=(8, 4))
-    axs.axis('tight')
-    axs.axis('off')
-    ytable=axs.table(cellText=pesi, cellColours=None, cellLoc='right', colWidths=None, rowLabels=names, rowColours=None, rowLoc='left', colLabels=list2, colColours=None, colLoc='center', loc='bottom', bbox=None, edges='closed')
-    
-    ytable.set_fontsize(34)
-    ytable.scale(1, 4)
+    if param['print_fig']:
+        list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
+        fig, axs =plt.subplots(1,figsize=(8, 4))
+        axs.axis('tight')
+        axs.axis('off')
+        ytable=axs.table(cellText=pesi, cellColours=None, cellLoc='right', colWidths=None, rowLabels=names, rowColours=None, rowLoc='left', colLabels=list2, colColours=None, colLoc='center', loc='bottom', bbox=None, edges='closed')
+        
+        ytable.set_fontsize(34)
+        ytable.scale(1, 4)
     
     # %%
     model.fit(X_uni, y_uni)
@@ -284,8 +257,11 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     # %%
         print('\n\nRipeto K-NN su spazio ristretto')
         #KNN=KNeighborsClassifier(n_neighbors=3, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
-        KNN=KNeighborsClassifier(n_neighbors=4, weights='uniform',algorithm='brute')
-        
+        #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute')
+        #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
+        #clf = ExtraTreesClassifier(n_estimators=20, random_state=0,class_weight='balanced')
+        #KNN = clf.fit(X_uni, y_uni)
+        KNN=svm.SVC(class_weight = 'balanced')
         KNN = KNN.fit(X_uni, y_uni)
         
         K_pred_train = KNN.predict(np.array(X_uni))
@@ -309,108 +285,21 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         acc_after_lasso[k]=metrics.accuracy_score(K_pred_test, y_test)
         
     # %%   
-        
-        for tit,cl,y_i in zip(['Banale','test','train'],[K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni]):
-            confusion_m=confusion_matrix( y_i,cl,normalize='pred')
-            df_cm = df_cm = pd.DataFrame(confusion_m, index=["NOSTAS","STAS"], columns=["NOSTAS","STAS"])
-            plt.figure(figsize=(5,5))
-            sns.set(font_scale=1.4) # for label size
-            sns.heatmap(df_cm, annot=True, annot_kws={"size": 16}).set_title('red. Space'+tit) # 
-        
+        if param['print_fig']:
+            print('entro e non printo?')
+            print_confusion_matrix([K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni],title_prefix='After LASSO ')
+
     elif np.sum(acc<prev)==0:
         print('LASSO DID NOT FIND FEATURES TO DROP')
-        acc_after_lasso[k]=acc_before_lasso[j]
+        acc_after_lasso[k]=acc_before_lasso[k]
 
     plt.close()
     del(X_train,y_train,X_test,y_test)
-    
-# =============================================================================
-# # %%
-# 
-# #          K-Fold split Data with K-NN Classificator After Univariate features selection
-# #....................................#
-# kf=KFold(n_splits=10)
-# kf.get_n_splits(X)
-# for train_index,test_index in kf.split(X):
-#     X_train,X_test=X[train_index],X[test_index]
-#     y_train,y_test=y[train_index],y[test_index]
-# 
-# # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
-# scaler = StandardScaler()
-# X_train = scaler.fit_transform(X_train)
-# X_test = scaler.transform(X_test)
-# 
-# KNN=KNeighborsClassifier(n_neighbors=5,weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X)})
-# KNN = KNN.fit(X_train, y_train)
-# 
-# #y_pred = KNN.predict(X_test)
-# #print(classification_report(y_test, y_pred))
-# #print(confusion_matrix(y_test, y_pred))
-# 
-# 
-# #print('TRAIN')
-# #print('Accuracy model: %.3f' % str(metrics.accuracy_score(KNN.predict(np.array(X_train)), y_train)*100)+'%')
-# #print('Precision and Sensibility model: %.3f' % str(metrics.f1_score(KNN.predict(np.array(X_train)), y_train)*100)+'%')#SENSIBILITà + PRECISIONE
-# 
-# print('TEST')
-# print(str(metrics.accuracy_score(KNN.predict(np.array(X_test)), y_test)*100)+'%')
-# print(str(metrics.f1_score(KNN.predict(np.array(X_test)), y_test)*100)+'%')
-# 
-# 
-# del(train_index,test_index,KNN,kf,scaler)
-# 
-# 
-# #...............................................................................................................
-# 
-# #            LASSO
-# #...................................#
-# model = Lasso(alpha=1,max_iter=1000)
-# model.fit(X, y)
-# 
-# Coef_Lasso=model.coef_
-# New_Indice=[]
-# for i in range(0,T):
-#     if Coef_Lasso[i]!=0:
-#         Indice=i
-#         New_Indice.append(Indice)
-# Indices=np.asarray(New_Indice).transpose()
-# 
-# U=[]
-# feature_name=[]
-# for i in Indices:
-#     x=X[:,i]
-#     new_feature_name=features[i]
-#     U.append(x)
-#     feature_name.append(new_feature_name)
-# del(X,features)
-# X=np.asarray(U).transpose()
-# features=np.asarray(feature_name).transpose()
-# 
-# del(X_train,X_test,y_train,y_test,New_Indice,U,Indices,x,model,feature_name,new_feature_name,Indice)
-# 
-# 
-# 
-# #          K-Fold split Data with Linear Regression Classificator After Univariate features selection and Lasso
-# #............................................................................................#
-# kf=KFold(n_splits=10)
-# kf.get_n_splits(X)
-# for train_index,test_index in kf.split(X):
-#     X_train,X_test=X[train_index],X[test_index]
-#     y_train,y_test=y[train_index],y[test_index]
-# 
-# # Scale the X data (per garantire che nessuna informazione al di fuori dei dati di addestramento venga utilizzata per creare il modello)
-# scaler = StandardScaler()
-# X_train = scaler.fit_transform(X_train)
-# X_test = scaler.transform(X_test)
-# 
-# model=LinearRegression()
-# model.fit(X_train,y_train)
-# y_predict=model.predict(X_test)
-# #score=model.score(X_test,y_test)
-# print('Mean Squared Error: %.3f' % metrics.mean_squared_error(y_test,y_predict))
-# print('Coefficient Of Determination: %.3f' % metrics.r2_score(y_test,y_predict))
-# 
-# for i in range(len(model.coef_)):
-#     print(features[i],'\t',model.coef_[i])
-# 
+
+print('\nMean ACC before lasso: {:.2f} +/- {:.2f}'.format(acc_before_lasso.mean(),acc_before_lasso.std()))
+print('\nMean ACC after lasso: {:.2f} +/- {:.2f}'.format(acc_after_lasso.mean(),acc_after_lasso.std()))
+t,p=stats.ttest_rel(acc_before_lasso,acc_after_lasso)
+print('\n paired-t-test (ipotesis of equal average)\n if p-value:({:.2}) > 0.05, the average is the same'.format(p))
+
+
 # =============================================================================
