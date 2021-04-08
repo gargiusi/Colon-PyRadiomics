@@ -16,15 +16,22 @@ from sklearn.metrics import confusion_matrix, plot_confusion_matrix
 from sklearn.model_selection import StratifiedKFold, KFold
 from scipy import stats
 from sklearn.ensemble import ExtraTreesClassifier
-from utils import print_confusion_matrix,print_corr_matrix,find_correlated,corr_matrix,print_hist_rack
+
+from utils import print_confusion_matrix,print_corr_matrix,print_hist_rack,print_model_report
+from analisi import find_correlated,corr_matrix,univariate_selection
 from sklearn import svm
+
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF
+
+from collections import Counter
 #parametri (in futuro da riga di comando)
 # %%
 param = {
-    'outer_split':4,
+    'outer_split':5,
     'stratify':True,#not in use
     'N_features': 25, 
-    'corr_cut':0.80, 
+    'corr_cut':0.85, 
     'do_scaler': True,
     'do_corr_cut': True,
     'do_SMOTE': False,
@@ -33,19 +40,25 @@ param = {
     'print_fig': False,
     'corr_type': 'spearman', #can also be "pearson"
     'remove_out':True, # removing outliers before correlation calculation
-    
+    'univar':'f-stat-', #or custom
     }  
 
+kernel = 1.5 * RBF(0.5)
+#model = GaussianProcessClassifier(kernel=kernel,random_state=10)
+#model=LogisticRegression(C=1,penalty='l2',class_weight='balanced',solver='liblinear')
+model=svm.SVC(class_weight = 'balanced',kernel='poly',degree=3)
+#model_ssfs = svm.SVC(class_weight = 'balanced',kernel='linear')
+model_ssfs = LogisticRegression(C=0.8,penalty='l1',class_weight='balanced',solver='liblinear')
 
-
-
-
-# %%prepara training e test set del dataset
-Filename='/media/andrea/DATA/STAS/rachele/codice_tesi/Tesi//10_STAS.csv' ###################### Enter the full path of csv dataset
+#model=svm.SVC(class_weight = 'balanced',kernel='linear')
+#model=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
+#model=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute')
+# %% prepara training e test set del dataset
+Filename='/media/andrea/DATA/STAS/rachele/codice_tesi/Tesi//10_STAS.csv' 
 data=np.loadtxt(Filename,delimiter=';',skiprows=1)
 data2=np.loadtxt(Filename,delimiter=';',skiprows=0,dtype=str)
-features=data2[0,1:-16]
-X=data[:,1:-16] #Data=Features
+features=data2[0,1:-1]
+X=data[:,1:-1] #Data=Features
 y=data[:,-1] #Target=STAS
 if param['shuffle_labels']:
     y=np.random.permutation(y)
@@ -55,8 +68,10 @@ skf = StratifiedKFold(n_splits=out_k,shuffle=True)
 #auc_total=np.zeros([4])
 acc_before_lasso=np.zeros([out_k])
 acc_after_lasso=np.zeros([out_k])
+acc_lasso_test_before=np.zeros([out_k])
+acc_lasso_test_after=np.zeros([out_k])
 selected_feature_out=[]
-
+# %%
 for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     print('\n\tFOLD = {}\n'.format(k))
     
@@ -71,25 +86,24 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         X_test = scaler.transform(X_test)
     
     # %% #..................................................................................................................
-    
-    
     #             Univariate Features Selection
     #................................................#
     #standardizzo
     X_uni = X_train
     y_uni=y_train
-    #y_uni=np.random.permutation(y_uni)
+    
     T=param['N_features'] #iNSERISCI IL NUMERO DI FEATURES MESSE IN GIOCO
-    plt.figure(1)
+    p_values=univariate_selection(X_uni,y_uni,param)
+    sorted_features=np.argsort(p_values)
+    # selector = SelectKBest(f_classif, k=T)
+
+    # selector.fit(X_uni, y_uni)
+    
+    # scores = -np.log10(selector.pvalues_)
+    # scores /= scores.max()
+    # sorted_features=np.argsort(selector.pvalues_)
     
     
-    selector = SelectKBest(f_classif, k=T)
-    #selector = SelectPercentile(f_classif, percentile=10)
-    selector.fit(X_uni, y_uni)
-    
-    scores = -np.log10(selector.pvalues_)
-    scores /= scores.max()
-    sorted_features=np.argsort(selector.pvalues_)
     print(features[sorted_features[:T]])
     
     # %%trasformo e ordino - lo faccio a mano perchè così sono ordinati
@@ -104,38 +118,36 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     
     
     f,ax=plt.subplots(1)
-    ax.hist(selector.pvalues_,25,density=True)
+    ax.hist(p_values,25,density=True)
     ax.set_title('p-value, full dataset')
     ax.set_xlabel('p-value')
     ax.set_ylabel('Probability density')
     #istogramma best
     f,ax=plt.subplots(1)
-    ax.hist(selector.pvalues_[sorted_features[:T]],15,density=True)
+    ax.hist(p_values[sorted_features[:T]],15,density=True)
     ax.set_title('p-value, best {}'.format(T))
     ax.set_xlabel('p-value')
     ax.set_ylabel('Probability density')
     
     # %%histogram best 8 features
-    if param['print_fig']:
-        print_hist_rack(X,y,features,sorted_features,selector.pvalues_)
+    if 1:#param['print_fig']:
+        print_hist_rack(X,y,features,sorted_features,p_values)
         
     
     # %% matrice di correlazione
     correlation_p=corr_matrix(X_uni,param)
    
     if param['print_fig']:
-        print_corr_matrix(correlation_p,T,names)
+        print_corr_matrix(correlation_p,names)
    
     
-    
-    columns = find_correlated(correlation_p,param)
-                   
+    #find correleted and generate new correlation matrix
+    columns = find_correlated(correlation_p,param)                
     X_tmp = X_uni[:,columns]
-    
-    
     correlation_p=corr_matrix(X_tmp,param)
+    
     if param['print_fig']:
-        print_corr_matrix(correlation_p,T,names[columns])
+        print_corr_matrix(correlation_p,names[columns])
         
     if param['do_corr_cut']:
         print(''.join(45*['-']))
@@ -148,47 +160,20 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     if param['do_SMOTE']:
         print(''.join(45*['-']))
         print('OVERSAMPLING SMOTE\n')
-        oversample = ADASYN(n_neighbors=2)
+        oversample = SMOTE(k_neighbors=3)
         X_uni, y_uni = oversample.fit_resample(X_uni, y_uni)
     
     # %%
     
     print(''.join(45*['-']))
-    print('K-NN\n')
+    print('MODEL BEFORE SECOND STEP FS\n')
+
+    m_before = model.fit(X_uni, y_uni)
     
-    #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
-    #KNN=KNeighborsClassifier(n_neighbors=5, weights='uniform',algorithm='brute')
-    #KNN=KNeighborsClassifier(n_neighbors=4, weights='uniform',algorithm='brute')
-    KNN=svm.SVC(class_weight = 'balanced')
-    KNN = KNN.fit(X_uni, y_uni)
-    
-    K_pred_train = KNN.predict(np.array(X_uni))
-    
-    print('\nTRAIN')
-    print('Accuracy model on train: %.2f ' % (metrics.accuracy_score(K_pred_train, y_uni)))
-    print('Precision and Sensibility model on train: %.2f' % (metrics.f1_score(K_pred_train, y_uni)))
+    acc_before_lasso[k]=print_model_report(m_before,X_uni,X_test,y_uni,y_test,param,'Before second step ')
     
     
-    K_pred_test = KNN.predict(X_test)
-    print('\nTEST')
-    print('Accuracy model on test: %.2f ' % (metrics.accuracy_score(K_pred_test, y_test)))
-    print('Precision and Sensibility model on test: %.2f' % (metrics.f1_score(K_pred_test, y_test)))
-    
-    K_pred_base = np.ones(y_test.shape)
-    print('\nSTUPIDO classificatore con tutti 1 on TEST')
-    print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
-    print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
-    
-    acc_before_lasso[k]=metrics.accuracy_score(K_pred_test, y_test)
-    #matrici di confusione
-    
-   
-    
-    # %% matrice di confusione
-    #f,ax =subplot(3,1)
-    if param['print_fig']:
-        print_confusion_matrix([K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni],title_prefix='before lasso')
-          
+
     
     # %%Esempio di cross validation
     print('\n\nCROSS VALIDATION with lasso for feature selection\n\n')
@@ -199,24 +184,25 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     acc=np.zeros([5])
     pesi=np.zeros([len(names),5])
     prev=np.zeros([5])#prevalenza di stas
+    
     for i, [train, test] in enumerate(skf.split(X_uni, y_uni)):
         
         
-        model = LogisticRegression(C=5,penalty='l1',class_weight='balanced',solver='liblinear')
-        model.fit(X_uni[train,:], y_uni[train])
-        fpr, tpr, thresholds = metrics.roc_curve(y_uni[test],model.predict(X_uni[test,:]))
-        acc[i]=metrics.accuracy_score(y_uni[test],model.predict(X_uni[test,:]))
+        #model = LogisticRegression(C=3,penalty='l1',class_weight='balanced',solver='liblinear')
+        model_ssfs.fit(X_uni[train,:], y_uni[train])
+        fpr, tpr, thresholds = metrics.roc_curve(y_uni[test],model_ssfs.predict(X_uni[test,:]))
+        acc[i]=metrics.accuracy_score(y_uni[test],model_ssfs.predict(X_uni[test,:]))
         auc[i]=metrics.auc(fpr, tpr)
         print('K= {} |AUC -  {:.2f}   |   ACC -  {:.2f}'.format(
             i,auc[i], acc[i]))
     
-        pesi[:,i]=(np.round(model.coef_/np.max(np.abs(model.coef_)),2))
+        pesi[:,i]=(np.round(model_ssfs.coef_/np.max(np.abs(model_ssfs.coef_)),2))
         prev[i]=np.sum(y_uni[test]==1)/len(y_uni[test])
     
     print('\nMean AUC: {:.2f} +/- {:.2f}   |  Mean ACC: {:.2f} +/- {:.2f}'.format(
             auc.mean(),auc.std(), acc.mean(),acc.std()))
     # %%stampo tabella dei pesi
-    if param['print_fig']:
+    if 1:#param['print_fig']:
         list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
         fig, axs =plt.subplots(1,figsize=(8, 4))
         axs.axis('tight')
@@ -227,12 +213,12 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         ytable.scale(1, 4)
     
     # %%
-    model.fit(X_uni, y_uni)
-    acc_lasso_test=metrics.accuracy_score(y_test,model.predict(X_test))
+    model_ssfs.fit(X_uni, y_uni)
+    acc_lasso_test_before[k]=metrics.accuracy_score(y_test,model_ssfs.predict(X_test))
     
     
     print('\n\nLASSO TEST')
-    print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
+    print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test_before[k]))
     
     print('\nLASSO dropped {} feature/s '.format(np.sum(acc<prev)))
     
@@ -246,60 +232,45 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         print('Selected Features for TEST :\n {}'.format(names))
     
     
-        model.fit(X_uni, y_uni)
-        acc_lasso_test=metrics.accuracy_score(y_test,model.predict(X_test))
+        model_ssfs.fit(X_uni, y_uni)
+        acc_lasso_test_after[k]=metrics.accuracy_score(y_test,model_ssfs.predict(X_test))
     
     
         print('\n\nLASSO TEST su spazio ristretto')
-        print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test))
+        print('Accuracy LASSO on test: %.2f ' % (acc_lasso_test_after[k]))
     
     
     # %%
-        print('\n\nRipeto K-NN su spazio ristretto')
-        #KNN=KNeighborsClassifier(n_neighbors=3, weights='uniform',algorithm='brute',metric='mahalanobis',metric_params={'V': np.cov(X_uni)})
-        #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute')
-        #KNN=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
-        #clf = ExtraTreesClassifier(n_estimators=20, random_state=0,class_weight='balanced')
-        #KNN = clf.fit(X_uni, y_uni)
-        KNN=svm.SVC(class_weight = 'balanced')
-        KNN = KNN.fit(X_uni, y_uni)
+        print('\n\nRipeto MODEL su spazio ristretto')
         
-        K_pred_train = KNN.predict(np.array(X_uni))
-        
-        print('\nTRAIN')
-        print('Accuracy model on train: %.2f ' % (metrics.accuracy_score(K_pred_train, y_uni)))
-        print('Precision and Sensibility model on train: %.2f' % (metrics.f1_score(K_pred_train, y_uni)))
+        m_after = model.fit(X_uni, y_uni)
+        acc_after_lasso[k]=print_model_report(m_after,X_uni,X_test,y_uni,y_test,param,'After second step ')
         
         
-        K_pred_test = KNN.predict(X_test)
-        print('\nTEST')
-        print('Accuracy model on test: %.2f ' % (metrics.accuracy_score(K_pred_test, y_test)))
-        print('Precision and Sensibility model on test: %.2f' % (metrics.f1_score(K_pred_test, y_test)))
-        
-        K_pred_base = np.ones(y_test.shape)
-        print('\nSTUPIDO classificatore con tutti 1 on TEST')
-        print('Accuracy base on test: %.2f ' % (metrics.accuracy_score(K_pred_base, y_test)))
-        print('Precision and Sensibility base on test: %.2f' % (metrics.f1_score(K_pred_base, y_test)))
-        
-        
-        acc_after_lasso[k]=metrics.accuracy_score(K_pred_test, y_test)
         
     # %%   
-        if param['print_fig']:
-            print('entro e non printo?')
-            print_confusion_matrix([K_pred_base,K_pred_test,K_pred_train],[y_test,y_test,y_uni],title_prefix='After LASSO ')
-
+        
     elif np.sum(acc<prev)==0:
         print('LASSO DID NOT FIND FEATURES TO DROP')
         acc_after_lasso[k]=acc_before_lasso[k]
-
-    plt.close()
+        acc_lasso_test_after[k]=acc_lasso_test_before[k]
+    #plt.close()
+    selected_feature_out.append(names)
     del(X_train,y_train,X_test,y_test)
+# %%  
+print('\nLASSO MODEL')
+print('\nMean ACC before ssfs: {:.2f} +/- {:.2f}'.format(acc_lasso_test_before.mean(),acc_lasso_test_before.std()))
+print('\nMean ACC after ssfs: {:.2f} +/- {:.2f}'.format(acc_lasso_test_after.mean(),acc_lasso_test_after.std()))
+t,p=stats.ttest_rel(acc_lasso_test_before,acc_lasso_test_after)
+print('\n paired-t-test (ipotesis of equal average)\n if p-value:({:.2}) > 0.05, the average is the same'.format(p))
 
+print('\nCHOOSED MODEL')
 print('\nMean ACC before lasso: {:.2f} +/- {:.2f}'.format(acc_before_lasso.mean(),acc_before_lasso.std()))
 print('\nMean ACC after lasso: {:.2f} +/- {:.2f}'.format(acc_after_lasso.mean(),acc_after_lasso.std()))
 t,p=stats.ttest_rel(acc_before_lasso,acc_after_lasso)
 print('\n paired-t-test (ipotesis of equal average)\n if p-value:({:.2}) > 0.05, the average is the same'.format(p))
 
-
+flat_list = [item for sublist in selected_feature_out for item in sublist]
+sel=Counter(flat_list).most_common(5)
+print(sel)
 # =============================================================================
