@@ -27,7 +27,7 @@ def corr_matrix(X,param):
 
             z_scores = stats.zscore(X[:,ind])
             abs_z_scores = np.abs(z_scores)
-            filtered_entries = (abs_z_scores > 2.7)
+            filtered_entries = (abs_z_scores > 3)
 
             X[filtered_entries,ind]=X[np.invert(filtered_entries),ind].mean()
         
@@ -69,7 +69,7 @@ def univariate_selection(X,y,param):
 
             z_scores = stats.zscore(X[:,ind])
             abs_z_scores = np.abs(z_scores)
-            filtered_entries = (abs_z_scores > 2.7)
+            filtered_entries = (abs_z_scores > 3)
 
             X[filtered_entries,ind]=X[np.invert(filtered_entries),ind].mean()
     

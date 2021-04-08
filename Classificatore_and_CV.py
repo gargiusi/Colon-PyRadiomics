@@ -25,8 +25,25 @@ from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF
 
 from collections import Counter
+from sklearn.decomposition import PCA
 #parametri (in futuro da riga di comando)
 # %%
+# param = { #funzionano
+#     'outer_split':5,
+#     'stratify':True,#not in use
+#     'N_features': 25, 
+#     'corr_cut':0.85, 
+#     'do_scaler': True,
+#     'do_corr_cut': True,
+#     'do_SMOTE': False,
+#     'shuffle_labels': False,
+#     'lasso_cut': True,
+#     'print_fig': False,
+#     'corr_type': 'spearman', #can also be "pearson"
+#     'remove_out':True, # removing outliers before correlation calculation
+#     'univar':'f_classif', #or custom
+#     'PCA_denoise':True,
+#     }  
 param = {
     'outer_split':5,
     'stratify':True,#not in use
@@ -39,8 +56,9 @@ param = {
     'lasso_cut': True,
     'print_fig': False,
     'corr_type': 'spearman', #can also be "pearson"
-    'remove_out':True, # removing outliers before correlation calculation
-    'univar':'f-stat-', #or custom
+    'remove_out':False, # removing outliers before correlation calculation
+    'univar':'f_classif', #or custom
+    'PCA_denoise':True,
     }  
 
 kernel = 1.5 * RBF(0.5)
@@ -60,17 +78,29 @@ data2=np.loadtxt(Filename,delimiter=';',skiprows=0,dtype=str)
 features=data2[0,1:-1]
 X=data[:,1:-1] #Data=Features
 y=data[:,-1] #Target=STAS
+
+
+
+
+
+
 if param['shuffle_labels']:
     y=np.random.permutation(y)
 
 out_k=param['outer_split']
-skf = StratifiedKFold(n_splits=out_k,shuffle=True)
+out_nr=20
+#skf = StratifiedKFold(n_splits=out_k,shuffle=True)
+#skf = KFold(n_splits=out_k,shuffle=True)
+skf = RepeatedKFold(n_splits=out_k,n_repeats=out_nr)
+
 #auc_total=np.zeros([4])
-acc_before_lasso=np.zeros([out_k])
-acc_after_lasso=np.zeros([out_k])
-acc_lasso_test_before=np.zeros([out_k])
-acc_lasso_test_after=np.zeros([out_k])
+acc_before_lasso=np.zeros([out_k*out_nr])
+acc_after_lasso=np.zeros([out_k*out_nr])
+acc_lasso_test_before=np.zeros([out_k*out_nr])
+acc_lasso_test_after=np.zeros([out_k*out_nr])
 selected_feature_out=[]
+f_used_before=np.zeros([out_k*out_nr])
+f_used_after=np.zeros([out_k*out_nr])
 # %%
 for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     print('\n\tFOLD = {}\n'.format(k))
@@ -84,6 +114,10 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
         X_test = scaler.transform(X_test)
+        
+        
+
+        
     
     # %% #..................................................................................................................
     #             Univariate Features Selection
@@ -114,23 +148,37 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     X_test=X_test[:,sorted_features[:T]]
     
     names = features[sorted_features[:T]]
+   
+    #denoiser
+    if param['PCA_denoise']:#denoiser
+    
+        pca = PCA(n_components=round(0.8*T) )
+        pca.fit(X_uni)
+        X_uni = pca.transform(X_uni)
+        X_test = pca.transform(X_test)
+        
+        X_uni = pca.inverse_transform(X_uni)
+        X_test = pca.inverse_transform(X_test)
+   
+    
+   
     # %%istogramma tutte
     
-    
-    f,ax=plt.subplots(1)
-    ax.hist(p_values,25,density=True)
-    ax.set_title('p-value, full dataset')
-    ax.set_xlabel('p-value')
-    ax.set_ylabel('Probability density')
-    #istogramma best
-    f,ax=plt.subplots(1)
-    ax.hist(p_values[sorted_features[:T]],15,density=True)
-    ax.set_title('p-value, best {}'.format(T))
-    ax.set_xlabel('p-value')
-    ax.set_ylabel('Probability density')
+    if param['print_fig']:
+        f,ax=plt.subplots(1)
+        ax.hist(p_values,25,density=True)
+        ax.set_title('p-value, full dataset')
+        ax.set_xlabel('p-value')
+        ax.set_ylabel('Probability density')
+        #istogramma best
+        f,ax=plt.subplots(1)
+        ax.hist(p_values[sorted_features[:T]],15,density=True)
+        ax.set_title('p-value, best {}'.format(T))
+        ax.set_xlabel('p-value')
+        ax.set_ylabel('Probability density')
     
     # %%histogram best 8 features
-    if 1:#param['print_fig']:
+    if param['print_fig']:#param['print_fig']:
         print_hist_rack(X,y,features,sorted_features,p_values)
         
     
@@ -202,7 +250,7 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     print('\nMean AUC: {:.2f} +/- {:.2f}   |  Mean ACC: {:.2f} +/- {:.2f}'.format(
             auc.mean(),auc.std(), acc.mean(),acc.std()))
     # %%stampo tabella dei pesi
-    if 1:#param['print_fig']:
+    if param['print_fig']:
         list2=['ACC: '+el+'%' for el in list(map(str, np.round(acc*100).astype('int16')))]
         fig, axs =plt.subplots(1,figsize=(8, 4))
         axs.axis('tight')
@@ -213,6 +261,7 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         ytable.scale(1, 4)
     
     # %%
+    f_used_before[k]=len(names)
     model_ssfs.fit(X_uni, y_uni)
     acc_lasso_test_before[k]=metrics.accuracy_score(y_test,model_ssfs.predict(X_test))
     
@@ -228,7 +277,7 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         X_uni=X_uni[:,selected_over_lasso]
         X_test=X_test[:,selected_over_lasso]
         names=names[selected_over_lasso]
-    
+        f_used_after[k]=len(names)
         print('Selected Features for TEST :\n {}'.format(names))
     
     
@@ -254,6 +303,7 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
         print('LASSO DID NOT FIND FEATURES TO DROP')
         acc_after_lasso[k]=acc_before_lasso[k]
         acc_lasso_test_after[k]=acc_lasso_test_before[k]
+        f_used_after[k]=f_used_before[k]
     #plt.close()
     selected_feature_out.append(names)
     del(X_train,y_train,X_test,y_test)
@@ -271,6 +321,15 @@ t,p=stats.ttest_rel(acc_before_lasso,acc_after_lasso)
 print('\n paired-t-test (ipotesis of equal average)\n if p-value:({:.2}) > 0.05, the average is the same'.format(p))
 
 flat_list = [item for sublist in selected_feature_out for item in sublist]
-sel=Counter(flat_list).most_common(5)
+sel=Counter(flat_list).most_common(8)
 print(sel)
+
+#per Rachele: altre analisi
+
+# np.argmax(acc_after_lasso) il miglior classificatore
+
+# le feature usate dal migliore selected_feature_out[25]
+
+#le feature medie selezionate f_used_after.mean()
+
 # =============================================================================
