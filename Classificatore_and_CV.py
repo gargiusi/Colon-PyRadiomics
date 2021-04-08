@@ -47,26 +47,27 @@ from sklearn.decomposition import PCA
 param = {
     'outer_split':5,
     'stratify':True,#not in use
-    'N_features': 25, 
-    'corr_cut':0.85, 
+    'N_features': 35, 
+    'corr_cut':0.97, 
     'do_scaler': True,
     'do_corr_cut': True,
     'do_SMOTE': False,
     'shuffle_labels': False,
     'lasso_cut': True,
     'print_fig': False,
-    'corr_type': 'spearman', #can also be "pearson"
+    'corr_type': 'pearson', #can also be "pearson"
     'remove_out':False, # removing outliers before correlation calculation
     'univar':'f_classif', #or custom
-    'PCA_denoise':True,
+    'PCA_denoise':False,
+    'cut_mean_corr_first':True
     }  
 
 kernel = 1.5 * RBF(0.5)
 #model = GaussianProcessClassifier(kernel=kernel,random_state=10)
 #model=LogisticRegression(C=1,penalty='l2',class_weight='balanced',solver='liblinear')
-model=svm.SVC(class_weight = 'balanced',kernel='poly',degree=3)
+model=svm.SVC(class_weight = 'balanced',kernel='rbf',degree=3)
 #model_ssfs = svm.SVC(class_weight = 'balanced',kernel='linear')
-model_ssfs = LogisticRegression(C=0.8,penalty='l1',class_weight='balanced',solver='liblinear')
+model_ssfs = LogisticRegression(C=0.2,penalty='l1',class_weight='balanced',solver='liblinear')
 
 #model=svm.SVC(class_weight = 'balanced',kernel='linear')
 #model=KNeighborsClassifier(n_neighbors=3, weights='distance',algorithm='brute',metric='mahalanobis',metric_params={'VI': np.cov(X_uni)})
@@ -88,10 +89,10 @@ if param['shuffle_labels']:
     y=np.random.permutation(y)
 
 out_k=param['outer_split']
-out_nr=20
+out_nr=50
 #skf = StratifiedKFold(n_splits=out_k,shuffle=True)
 #skf = KFold(n_splits=out_k,shuffle=True)
-skf = RepeatedKFold(n_splits=out_k,n_repeats=out_nr)
+skf = RepeatedStratifiedKFold(n_splits=out_k,n_repeats=out_nr)
 
 #auc_total=np.zeros([4])
 acc_before_lasso=np.zeros([out_k*out_nr])
@@ -152,7 +153,7 @@ for k, [train_out, test_out] in enumerate(skf.split(X, y)):
     #denoiser
     if param['PCA_denoise']:#denoiser
     
-        pca = PCA(n_components=round(0.8*T) )
+        pca = PCA(n_components=round(0.70*T) )
         pca.fit(X_uni)
         X_uni = pca.transform(X_uni)
         X_test = pca.transform(X_test)
@@ -321,6 +322,7 @@ t,p=stats.ttest_rel(acc_before_lasso,acc_after_lasso)
 print('\n paired-t-test (ipotesis of equal average)\n if p-value:({:.2}) > 0.05, the average is the same'.format(p))
 
 flat_list = [item for sublist in selected_feature_out for item in sublist]
+
 sel=Counter(flat_list).most_common(8)
 print(sel)
 
@@ -328,8 +330,14 @@ print(sel)
 
 # np.argmax(acc_after_lasso) il miglior classificatore
 
-# le feature usate dal migliore selected_feature_out[25]
+# le feature usate dal migliore selected_feature_out[np.argmax(acc_after_lasso)]
 
 #le feature medie selezionate f_used_after.mean()
+
+
+
+#check delle feature usate quando fuziona male rispetto a quando funziona bene?
+
+#a=np.array(selected_feature_out, dtype=object)[acc_after_lasso>0.7]
 
 # =============================================================================

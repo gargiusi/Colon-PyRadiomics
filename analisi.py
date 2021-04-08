@@ -10,7 +10,16 @@ from scipy import stats
 from sklearn.feature_selection import SelectKBest,f_classif
 
 def find_correlated(correlation_p,param):
+    
     columns = np.full((correlation_p.shape[0],), True, dtype=bool)
+    
+    if param['cut_mean_corr_first']:
+        b=np.argsort(np.mean(np.abs(correlation_p-np.eye(correlation_p.shape[0])),axis=1))[-round(0.15*correlation_p.shape[0]):-1]
+        correlation_p[b,:]=0
+        correlation_p[:,b]=0
+        columns[b]=False
+    
+    
     for i in range(correlation_p.shape[0]):
         for j in range(i+1, correlation_p.shape[0]):# dovrebbe contare a partire da destra
             if np.abs(correlation_p[i,j]) >= param['corr_cut']: #taglio anche le corr negative
