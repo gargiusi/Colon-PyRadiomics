@@ -142,13 +142,21 @@ try:
                         X_test = scaler.transform(X_test)
 
                     if Richiesta_Immagini == True:
-                        Esistente2 = False
+                        Esistente22 = False
                         for tt in os.listdir(PercorsoImmagini_1):
+                            if tt == Modelli[tr]:
+                                Esistente22 = True
+                        if Esistente22 == False:
+                            os.mkdir('{}/{}'.format(PercorsoImmagini_1,Modelli[tr]))
+
+
+                        Esistente2 = False
+                        for tt in os.listdir(PercorsoImmagini_1+'/'+Modelli[tr]):
                             if tt == 'FOLD ' + str(k+1):
                                 Esistente2 = True
                         if Esistente2 == False:
-                            os.mkdir('{}/FOLD {}'.format(PercorsoImmagini_1,k+1))
-                        PercorsoImmagini_2 = PercorsoImmagini_1 + '/FOLD ' + str(k+1)+'/'
+                            os.mkdir('{}/FOLD {}'.format(PercorsoImmagini_1+'/'+Modelli[tr],k+1))
+                        PercorsoImmagini_2 = PercorsoImmagini_1 + '/' + Modelli[tr] + '/FOLD ' + str(k+1)+'/'
 
 
                     # %% #..................................................................................................................
@@ -769,15 +777,8 @@ try:
             print('\nLe feature medie selezionate dal miglior classificatore sono:\n{}'.format(f_used_after_classificatori[indice_massimo]))
 
 
-            def SaveAs():
-                pathname1 = filedialog.askdirectory(parent=root, initialdir=currdir, title='SaveAs: Select a directory')
-                if os.path.isdir(pathname1) != True:
-                    SaveAs()
-                return pathname1
 
-
-            pathname1 = SaveAs()
-            workbook.save(pathname1 + '/Report-'+NomeFileDataSet)
+            workbook.save(pathname + '/Report-'+NomeFileDataSet)
             del(workbook)
 
 
