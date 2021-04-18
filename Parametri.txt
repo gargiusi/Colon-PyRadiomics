@@ -1,0 +1,4 @@
+integer|integer|float|boolean|integer|float|boolean|boolean|boolean|boolean|boolean|boolean|boolean|string|boolean|string|boolean|boolean
+outer_split|outer_split_repeat|test_hold|stratify|N_features|corr_cut|do_scaler|do_corr_cut|do_SMOTE|shuffle_labels|lasso_cut|print_fig|mahalanobis_Distance|corr_type|remove_out|univar|PCA_denoise|cut_mean_corr_first
+5|1|0.25|True|25|0.85|True|True|||True|||pearson||f_classif||True
+
