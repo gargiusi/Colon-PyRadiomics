@@ -1,0 +1,7 @@
+- Function to select columns from a list of feature names
+
+- Panda dataset instead on numpy arrays
+
+- structured reports file at end of experiemt
+
+- UNIVARIATE STUDY: correct test for each variablr type ANOVA for normal/ KURSK-WALLIS not normal- MUTUAL iNF for binary (clinical)
